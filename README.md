@@ -42,17 +42,26 @@ NW_IMAGE=ghcr.io/uxnar-ai/nodewarden-docker:latest ./install.sh vault.example.co
 docker pull ghcr.io/uxnar-ai/nodewarden-docker:latest
 ```
 
-### 方式二：离线镜像包（目标机器没外网也能装）
+### 方式二：离线镜像包（国内推荐）
 
-从 [Releases](../../releases/latest) 下载 `nodewarden-kit-*.tar.gz`，解压后：
+ghcr.io 的层下载在国内经常挂住不动（实测卡在 `Pulling fs layer`），这种情况直接用离线包：
+
+```bash
+git clone https://github.com/Uxnar-ai/nodewarden-docker.git && cd nodewarden-docker
+
+# 从 Releases 下载镜像包（国内可走 ghfast 等代理加速）
+curl -LO https://github.com/Uxnar-ai/nodewarden-docker/releases/download/v1.8.1-docker.1/nodewarden-image-amd64.tar.gz
+# 或用代理：curl -L https://ghfast.top/https://github.com/.../nodewarden-image-amd64.tar.gz -o nodewarden-image-amd64.tar.gz
+
+./install.sh vault.example.com      # 会自检并导入同目录的镜像包
+```
+
+也可以直接下载完整的 `nodewarden-kit-*.tar.gz`（已内置镜像、脚本和文档，300MB+ 一个文件搞定）：
 
 ```bash
 tar xzf nodewarden-kit-*.tar.gz && cd nodewarden-kit
-chmod +x install.sh
-./install.sh vault.example.com      # 换成你的域名；不填则只能内网 IP 访问
+chmod +x install.sh && ./install.sh vault.example.com
 ```
-
-`install.sh` 会导入镜像、按域名写好 Passkey 配置、起容器并等到健康。
 
 > 预构建镜像是 **x86_64（amd64）**。ARM 机器请用方式三自行构建。
 
