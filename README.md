@@ -1,5 +1,9 @@
 # NodeWarden Docker
 
+> **这是一个 AI 完成的项目。** 容器化改造、构建脚本、部署文档全部由 AI agent 完成
+> （WorkBuddy，模型 DeepSeek-V4.1-Flash），人类负责提出需求、做出取舍和验收。
+> 详见 [关于本项目](#关于本项目-ai-制作)。
+
 把 [NodeWarden](https://github.com/shuaiplus/nodewarden)（Bitwarden 兼容的密码库服务端）
 打包成可自托管的 Docker 镜像 —— **不需要 Cloudflare 账号，不需要任何云资源**。
 
@@ -134,6 +138,25 @@ config 里的服务器地址，容器里那永远是 `http://127.0.0.1:8787`，�
   但 Cloudflare 没有给这个用法背书；升级 wrangler 需要回归测试。
 - 无组织 / 合集 / SSO（上游本身未实现）。
 - 单文件附件受反向代理上传上限约束。
+
+## 关于本项目（AI 制作）
+
+这个仓库的代码与文档由 **AI agent 写成**，不是人类逐行敲的：
+
+| 角色 | 负责什么 |
+|---|---|
+| **WorkBuddy**（AI agent） | 读上游源码、设计容器化方案、写 Dockerfile / entrypoint / 补丁 / CI / 文档、在真实服务器上部署验证 |
+| **DeepSeek-V4.1-Flash**（模型） | 驱动上述 agent 的推理与实现 |
+| **人类（仓库所有者）** | 提出需求（"想自己托管、要能迁移、安全第一"）、确认方案、验收结果、提供部署环境 |
+
+**做出来的东西是验证过的，不是纸上方案**：在真实 Debian 服务器上用 Docker 跑通了
+注册 → 登录 → 新建密码条目 → 同步的完整链路，也验证了从干净目录用 `install.sh` 全新建实例。
+发现的问题（`cap_drop` 权限、`HOME` 没换、`/__scheduled` 暴露等）都修在了代码里，记在
+[MAINTAINER.md](MAINTAINER.md)。
+
+**但请把它当 AI 产物看待**：密码管理器是对可信度要求最高的软件类别之一。部署前建议自己
+过一遍 `Dockerfile`、`docker-entrypoint.sh`、`patches/forwarded-origin.mjs` 和
+`docker-compose.yml`——加起来不到 300 行。有疑问提 issue，别默认它对。
 
 ## 授权
 
