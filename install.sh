@@ -2,13 +2,14 @@
 # NodeWarden 一键部署脚本（离线镜像版）
 #
 # 用法：
-#   ./install.sh 你的域名            # 例：./install.sh vault.example.com
-#   ./install.sh                     # 不填域名，仅内网 IP 访问（passkey 不可用）
-#   NW_HOST_PORT=19000 ./install.sh vault.example.com
+#   ./install.sh 你的域名                              # 用同目录镜像包导入
+#   NW_IMAGE=ghcr.io/uxnar-ai/nodewarden-docker:latest ./install.sh 你的域名   # 直接拉 GHCR
+#   ./install.sh                                       # 不填域名，仅内网 IP 访问（passkey 不可用）
+#   NW_HOST_PORT=19000 ./install.sh 你的域名
 #
 # 做的事：
 #   1. 检查 docker / compose
-#   2. 导入同目录下的镜像包（若本地还没有该镜像）
+#   2. 准备镜像（本地已有则跳过；否则导入同目录镜像包）
 #   3. 生成 .env（域名、端口、密钥留空由容器自动生成）
 #   4. 起容器并等到 healthy
 set -euo pipefail
@@ -19,7 +20,7 @@ DOMAIN="${1:-}"
 PORT="${NW_HOST_PORT:-18787}"
 CONTAINER="${NW_CONTAINER_NAME:-nodewarden}"
 IMAGE_TAR="nodewarden-image-amd64.tar.gz"
-IMAGE="nodewarden:local"
+IMAGE="${NW_IMAGE:-nodewarden:local}"
 
 say() { printf '\033[1;36m[nw]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[nw] %s\033[0m\n' "$*" >&2; exit 1; }
@@ -31,12 +32,15 @@ docker info >/dev/null 2>&1 || die "连不上 docker daemon，确认服务已启
 
 # ---------- 2. 镜像 ----------
 if docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  say "镜像 $IMAGE 已存在，跳过导入"
+  say "镜像 $IMAGE 已存在，直接使用"
+elif [ "$IMAGE" != "nodewarden:local" ]; then
+  say "拉取镜像 $IMAGE ..."
+  docker pull "$IMAGE"
 elif [ -f "$IMAGE_TAR" ]; then
-  say "导入镜像（约 150MB，需要一点时间）..."
+  say "导入镜像包（约 360MB）..."
   gunzip -c "$IMAGE_TAR" | docker load
 else
-  die "既没有本地镜像 $IMAGE，也没找到 $IMAGE_TAR。想从源码构建：docker build -t $IMAGE ."
+  die "既没有本地镜像 $IMAGE，也没找到 $IMAGE_TAR。想从源码构建：docker build -t nodewarden:local ."
 fi
 
 # ---------- 3. 配置 ----------
@@ -63,9 +67,10 @@ NW_BIND_ADDR=127.0.0.1
 NW_HOST_PORT=$PORT
 # 每 5 分钟触发一次定时任务（云端自动备份依赖它）
 NW_ENABLE_CRON=1
-# compose 项目名 / 容器名（同机多实例时改掉）
+# compose 项目名 / 容器名 / 镜像（同机多实例或换镜像源时改掉）
 NW_PROJECT=${NW_PROJECT:-nodewarden}
 NW_CONTAINER_NAME=$CONTAINER
+NW_IMAGE=$IMAGE
 EOF
   chmod 600 .env
   say "已生成 .env"

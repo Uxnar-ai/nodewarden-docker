@@ -27,7 +27,22 @@ Cloudflare Tunnel / Nginx / Caddy  →  127.0.0.1:18787 (容器)  →  workerd
 
 ## 快速开始
 
-### 方式一：用预构建镜像（推荐，免构建免联网）
+### 方式一：直接拉现成镜像（最快，x86_64）
+
+镜像由 GitHub Actions 自动构建，推送到 GHCR：
+
+```bash
+git clone https://github.com/Uxnar-ai/nodewarden-docker.git && cd nodewarden-docker
+NW_IMAGE=ghcr.io/uxnar-ai/nodewarden-docker:latest ./install.sh vault.example.com
+```
+
+只想先看看能不能跑：
+
+```bash
+docker pull ghcr.io/uxnar-ai/nodewarden-docker:latest
+```
+
+### 方式二：离线镜像包（目标机器没外网也能装）
 
 从 [Releases](../../releases/latest) 下载 `nodewarden-kit-*.tar.gz`，解压后：
 
@@ -37,14 +52,14 @@ chmod +x install.sh
 ./install.sh vault.example.com      # 换成你的域名；不填则只能内网 IP 访问
 ```
 
-脚本会导入镜像、按域名写好 Passkey 配置、起容器并等到健康。
+`install.sh` 会导入镜像、按域名写好 Passkey 配置、起容器并等到健康。
 
-> 预构建镜像是 **x86_64（amd64）**。ARM 机器请用方式二自行构建。
+> 预构建镜像是 **x86_64（amd64）**。ARM 机器请用方式三自行构建。
 
-### 方式二：从源码构建
+### 方式三：从源码构建
 
 ```bash
-git clone git@github.com:Uxnar-ai/nodewarden-docker.git && cd nodewarden-docker
+git clone https://github.com/Uxnar-ai/nodewarden-docker.git && cd nodewarden-docker
 docker build -t nodewarden:local .
 ./install.sh vault.example.com
 ```

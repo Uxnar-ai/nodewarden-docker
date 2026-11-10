@@ -5,8 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nodewarden:local
-    container_name: nodewarden
+    # 用 GHCR 现成镜像时设 NW_IMAGE，可跳过构建
+    image: ${NW_IMAGE:-nodewarden:local}
+    container_name: ${NW_CONTAINER_NAME:-nodewarden}
     restart: unless-stopped
 
     environment:
