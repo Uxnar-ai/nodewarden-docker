@@ -1,0 +1,11 @@
+node_modules
+dist
+data
+.wrangler
+.git
+.github
+.dev.vars
+*.log
+*.png
+*.svg
+DEPLOY.md

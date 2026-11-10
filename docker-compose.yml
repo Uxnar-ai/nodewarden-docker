@@ -1,0 +1,58 @@
+name: nodewarden
+
+services:
+  nodewarden:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nodewarden:local
+    container_name: nodewarden
+    restart: unless-stopped
+
+    environment:
+      # 留空 = 首次启动自动生成并保存到 ./data/jwt_secret
+      JWT_SECRET: ${JWT_SECRET:-}
+      # Passkey 必填，否则 WebAuthn 校验不通过。填你的域名（不带协议）
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-NodeWarden}
+      WEBAUTHN_ALLOWED_ORIGINS: ${WEBAUTHN_ALLOWED_ORIGINS:-}
+      # 1 = 关闭项目自带的 Web 网页版，只留客户端 API（更隐蔽，但没网页可注册）
+      HIDE_WEB_VAULT: ${HIDE_WEB_VAULT:-}
+      NW_ENABLE_CRON: ${NW_ENABLE_CRON:-1}
+
+    ports:
+      # 只绑回环，公网只能经反向代理进入；不要改成 0.0.0.0
+      - "${NW_BIND_ADDR:-127.0.0.1}:${NW_HOST_PORT:-18787}:8787"
+
+    volumes:
+      # 整个数据目录：D1 数据库、Durable Objects、附件、JWT 密钥
+      - ./data:/data
+
+    security_opt:
+      - no-new-privileges:true
+    # 只保留启动阶段"改属主 + 降权"必需的几项，其余全部丢弃
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    mem_limit: 1536m
+    pids_limit: 512
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8787/api/config >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

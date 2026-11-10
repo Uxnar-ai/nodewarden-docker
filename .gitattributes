@@ -1,0 +1,8 @@
+# 仓库内统一存 LF：shell / Dockerfile / 配置在 Linux 上带 CRLF 会直接跑不起来
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.svg text eol=lf
+*.gz binary
+*.tgz binary
