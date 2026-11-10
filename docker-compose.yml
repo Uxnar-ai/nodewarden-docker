@@ -20,6 +20,9 @@ services:
       # 1 = 关闭项目自带的 Web 网页版，只留客户端 API（更隐蔽，但没网页可注册）
       HIDE_WEB_VAULT: ${HIDE_WEB_VAULT:-}
       NW_ENABLE_CRON: ${NW_ENABLE_CRON:-1}
+      # 外部图标服务。留空 = 本站自己抓图；设为 https://icons.bitwarden.net
+      # 可让客户端直连官方图标服务（省内存带宽，也不把条目域名写进本站日志）
+      ICON_SERVICE_URL: ${ICON_SERVICE_URL:-}
 
     ports:
       # 只绑回环，公网只能经反向代理进入；不要改成 0.0.0.0

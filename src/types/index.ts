@@ -13,6 +13,9 @@ export interface Env {
   // Optional fallback for attachment/send file storage (no credit card required).
   ATTACHMENTS_KV?: KVNamespace;
   JWT_SECRET: string;
+  // 外部图标服务地址；留空则使用本站（/icons/{host}/icon.png）。
+  // 设为 https://icons.bitwarden.net 可让客户端直连官方图标服务。
+  ICON_SERVICE_URL?: string;
   WEBAUTHN_RP_ID?: string;
   WEBAUTHN_RP_NAME?: string;
   WEBAUTHN_ALLOWED_ORIGINS?: string;

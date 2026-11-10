@@ -479,7 +479,7 @@ export async function handlePublicRoute(
     const blocked = await enforcePublicRateLimit('public-read', LIMITS.rateLimit.publicReadRequestsPerMinute);
     if (blocked) return blocked;
     const origin = new URL(request.url).origin;
-    return jsonResponse(buildConfigResponse(origin), 200, { 'Cache-Control': 'no-store' });
+    return jsonResponse(buildConfigResponse(origin, env.ICON_SERVICE_URL), 200, { 'Cache-Control': 'no-store' });
   }
 
   if (path === '/api/version' && method === 'GET') {
