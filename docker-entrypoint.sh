@@ -67,6 +67,9 @@ umask 077
   if [ -n "${HIDE_WEB_VAULT:-}" ]; then
     printf 'HIDE_WEB_VAULT=%s\n' "${HIDE_WEB_VAULT}"
   fi
+  if [ -n "${ICON_SERVICE_URL:-}" ]; then
+    printf 'ICON_SERVICE_URL=%s\n' "${ICON_SERVICE_URL}"
+  fi
 } > /app/.dev.vars
 chmod 600 /app/.dev.vars
 
