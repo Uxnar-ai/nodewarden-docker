@@ -85,6 +85,64 @@ cp ../nodewarden-kit/{install.sh,docker-compose.yml} .   # compose 里去掉 bui
 
 还必须**封掉 `/__scheduled`**：那是容器内跑定时任务的内部端点，暴露出去任何人都能反复触发你的备份任务。
 
+### CDN 回源（Cloudflare / EdgeOne / 其他）
+
+源站前面套了 CDN 时，链路是：
+
+```
+浏览器 https://vault.example.com
+   ↓ CDN 终止 TLS、做 WAF 和限速
+   ↓ 回源 http://origin.example.com:80，Host 头 = vault.example.com
+nginx：server_name vault.example.com → 127.0.0.1:18787
+```
+
+**两个概念别混**，它们在 CDN 控制台是两个独立配置：
+
+| | 是什么 | 填什么 |
+|---|---|---|
+| 回源地址 | CDN 去哪儿取内容 | `origin.example.com` 或源站 IP，端口 80，协议 HTTP |
+| 回源 Host 头 | 到源站后 `Host` 是什么 | **必须是用户访问的域名** `vault.example.com` |
+
+回源 Host 如果填成 `origin.example.com`，应用会把它当成服务器地址返回给客户端，后果是：
+
+- 客户端之后直连源站域名，**绕过 CDN**，WAF 和限速全失效
+- Passkey 的 RP ID 对不上，**指纹 / 设备登录失效**
+
+**nginx 里必检三项**
+
+```nginx
+# 1. 固定成对外域名，别用 $host
+#    回源 Host 是回源域名时，$host 会把错误地址写进 config 响应
+proxy_set_header X-Forwarded-Host vault.example.com;
+
+# 2. 协议写死 https
+#    CDN 回源走的是 http，$scheme 就是 http，config 会返回 http:// 地址，
+#    浏览器把图标和接口当混合内容拦掉
+proxy_set_header X-Forwarded-Proto https;
+
+# 3. 不要设 X-Real-IP
+#    回源时它是 CDN 节点 IP，应用按它做限流 = 全站共用一份配额
+#    只传 X-Forwarded-For，让应用取第一段（真实客户端）
+```
+
+**防绕过**：回源域名通常公开可解析，别人拿它直连就绕过了 CDN。两种做法：
+
+- CDN 配自定义回源请求头（如 `X-Origin-Token: <随机串>`），nginx 校验：
+
+  ```nginx
+  if ($http_x_origin_token != "<同一串随机值>") { return 444; }
+  ```
+
+  头名用**连字符**。带下划线的请求头 nginx 默认丢弃（`underscores_in_headers off`），
+  填成 `X_Origin_Token` 会永远匹配不上，表现为全站 403。
+
+- 或把回源域名的 A 记录只开放给 CDN 回源节点，用 IP 白名单。
+
+**两个 CDN 侧常见限制**
+
+- 免费版常限制单文件上传（Cloudflare 免费 100MB），要和 nginx 的 `client_max_body_size` 对齐。
+- **WebSocket 必须在 CDN 侧显式开启**，否则通知推送不通，改动不会实时同步到其他设备。
+
 ### Nginx
 
 ```nginx
@@ -102,8 +160,9 @@ server {
         proxy_pass http://127.0.0.1:18787;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # 直连反代（前面没有 CDN）才加这行；有 CDN 时必须注释掉，见上一节
+        # proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Proto $nw_proto;
         proxy_set_header Upgrade $http_upgrade;
@@ -191,6 +250,51 @@ docker compose up -d --force-recreate
 > 说明需要人工看一眼，而不是默默生成一堆 `http://127.0.0.1` 的地址。
 
 ---
+
+## 小内存机器（1–2G）
+
+`wrangler dev` 承载生产，空载就要 450–500MB。1G 上限的机器在同步时容易卡死，典型现象：
+
+```
+网页显示「暂时无法验证会话，登录状态已保留，稍后会自动重试」
+公网请求 30 秒超时，容器 health 仍显示 healthy
+docker stats 显示 1022MiB / 1GiB
+```
+
+根因：客户端同步时会给每个条目的网址抓 favicon，默认全由容器内的 Worker 完成，
+单张 1–4 秒，请求一积压就把内存吃满。**不是死机，是内存耗尽后所有请求排队超时。**
+
+**两步解决**
+
+1. 图标交给官方服务（`.env`）：
+
+```ini
+ICON_SERVICE_URL=https://icons.bitwarden.net
+```
+
+改完客户端直接用官方地址取图，容器一个字节不花，条目里的域名也不会写进你的访问日志。
+留空则维持原行为（本站抓图）。
+
+2. 抬高上限 + 配好 swap：
+
+```yaml
+# docker-compose.yml
+mem_limit: 1536m
+memswap_limit: 3g
+```
+
+```bash
+swapon --show                  # 确认 swap 真的挂上了
+sysctl vm.swappiness           # 0 = 几乎不用 swap，等于白配
+sysctl -w vm.swappiness=60
+echo 'vm.swappiness=60' >> /etc/sysctl.conf
+```
+
+`vm.swappiness=0` 的机器宁可 OOM 杀进程也不换页，很多镜像/面板默认就是 0，
+所以「有 swap 但 used 一直是 0B」是正常的假象。
+
+判断是否需要升配：swap 长期被占用几百 MB，说明已经到极限 —— 升内存，
+或者把面板类服务（宝塔等，自己就吃 200–300MB）挪到别的机器。
 
 ## 安全清单
 

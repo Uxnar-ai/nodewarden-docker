@@ -5,6 +5,23 @@
 
 ---
 
+## 接手须知
+
+隔了很久回来、或者换人接手，按这个顺序读：
+
+1. `README.md` —— 这是什么、三种安装方式、装完要注意什么
+2. `DEPLOY.md` —— 反代怎么配（**CDN 回源那节最容易踩**）、小内存调优、排障表
+3. 本文档 —— 内部结构、为什么这么设计、跟进上游时要动哪里
+
+**两个最容易忘的前提**
+
+- 线上跑的不是 Cloudflare Workers，而是 `wrangler dev`（本地 workerd）承载生产流量，
+  D1/R2/KV/DO/Cron 全部落到容器内 `/data`。行为可能和上游文档不一致，别照上游的说明排查。
+- 唯一改过的上游源码是 `src/config-response.ts`（图标服务地址）。同步上游会**静默**覆盖它，
+  不会报错，只表现为 `ICON_SERVICE_URL` 失效。见 §4.4。
+
+---
+
 ## 0. 一页速查
 
 ```bash
@@ -84,6 +101,9 @@ tar czf ~/nw-data-$(date +%F).tgz data
 | `docker-compose.yml` | 端口只绑回环、`cap_drop ALL` + 5 个必需 cap、tmpfs、资源上限、健康检查 | 不会 |
 | `patches/forwarded-origin.mjs` | 改 `config` 响应里的服务器地址，改用反代传来的协议/域名（幂等，锚点缺失即失败） | 不会，但**依赖上游某行代码** |
 | `install.sh` | 一键：查 docker → 准备镜像（本地/导入/GHCR）→ 按域名写 `.env` → 起容器 → 等 healthy | 不会 |
+| `src/config-response.ts` | **唯一改过的上游源码**：`icons` / `_icon_service_url` / `_icon_service_csp` 三处统一由 `resolveIconService` 算出，支持 `ICON_SERVICE_URL` | 会，同步上游时要重新应用 |
+| `.github/workflows/build-image.yml` | push main 自动构建镜像推 GHCR | 不会 |
+| `.github/workflows/release-image.yml` | 手动触发：构建 → `docker save` → 挂到指定 Release（离线包只能这样传，国内服务器上行太慢） | 不会 |
 | `.env` | 域名、端口、Passkey 配置（**不在版本库**） | — |
 | `data/` | 全部状态（**不在版本库**） | — |
 
@@ -210,13 +230,17 @@ jobs:
 
 那条 `sync` 里刻意用了 `--exclude`，防止上游 tarball 将来带上同名文件把 Docker 化改动覆盖掉。
 
-### 4.4 三个耦合点，上游大改会断
+### 4.4 四个耦合点，上游大改会断
 
 | 位置 | 依赖 | 断了的症状 | 怎么办 |
 |---|---|---|---|
 | `patches/forwarded-origin.mjs` | `src/router-public.ts` 里 `const origin = new URL(request.url).origin;` 这一行 | 构建直接失败：`anchor not found` | 去新代码里找 config 响应的 origin 怎么算的，改锚点或改文本替换 |
 | `Dockerfile` / entrypoint | `wrangler dev` 的参数 `--persist-to` `--test-scheduled` `--ip` | 容器起不来 / 定时任务不跑 | 看 `npx wrangler dev --help` 对齐参数名 |
 | entrypoint | `/__scheduled` 端点、`/data/.wrangler`、`persist/v3` 目录 | 备份不跑 / 数据重建成空库 | 起容器后确认 `data/persist/v3/` 有内容，日志里搜 `__scheduled` |
+| `src/config-response.ts` | 直接改的上游源码（`resolveIconService` + `ICON_SERVICE_URL`），**不是补丁** | 同步上游后被原样覆盖，`ICON_SERVICE_URL` 静默失效（图标回落本站，不报错） | 同步后重新应用：三处 `icons` / `_icon_service_url` / `_icon_service_csp` 改用 `resolveIconService`，函数签名加 `iconServiceUrl` |
+
+前三项的失败是响的（构建报错或功能明显坏），**第四项是静默的**，同步上游后极易漏掉。
+判断办法：容器里设了 `ICON_SERVICE_URL` 但 `/api/config` 的 `icons` 仍指向本站，就是被覆盖了。
 
 第一项失败即中断是有意的：宁可红色构建，也不要产出一个所有地址都是 `http://127.0.0.1:8787` 的镜像。
 
@@ -240,6 +264,29 @@ jobs:
    公开接口 60 次/分钟，几个人一起用就 429。走 Cloudflare 时传 `CF-Connecting-IP`。
 8. **Windows 上 `git show` 会做 autocrlf 转换**，看起来文件是 CRLF，实际仓库里是 LF。判断用 `git cat-file -p` 或 `git ls-files --eol`。shell 脚本/Dockerfile 一旦真带 CRLF，Linux 上直接 `\r: command not found`。
 9. **国内拉 ghcr.io 会卡死在 `Pulling fs layer`**，`ghcr.m.daocloud.io` 代理不收（不在白名单）。国内一律走 Release 离线包。
+10. **Worker 的 `env` 只来自 `.dev.vars`，`docker -e` 传的变量进不去**
+    新加环境变量时，除了 compose 的 `environment` 和 `src/types` 里的字段，**必须**在
+    `docker-entrypoint.sh` 的 `.dev.vars` 生成段补一行，否则 `env.XXX` 永远是 `undefined`，
+    而且不报错、静默回退到默认值。`JWT_SECRET` / `WEBAUTHN_*` 都是这么来的。
+11. **图标请求会把 1G 内存的容器打满**
+    客户端同步时给每个条目抓 favicon，默认由容器内 Worker 抓，单张 1–4 秒。请求积压后
+    `docker stats` 显示 1022MiB/1GiB，公网请求 30 秒超时，网页报「暂时无法验证会话」。
+    处理：设 `ICON_SERVICE_URL` 让客户端直连官方 + 抬 `mem_limit` + 配 swap（见 DEPLOY.md）。
+12. **`vm.swappiness=0` 时 swap 是摆设**
+    `free -m` 显示 swap 有 1G、used 恒为 0B 就是它。内核宁可 OOM 也不换页，必须先
+    `sysctl -w vm.swappiness=60`。
+13. **CDN 回源时 `X-Forwarded-Host` 不能用 `$host`**
+    回源 Host 若填的是回源域名，`$host` 就是它，应用会把错误地址写进 config 返回给客户端，
+    导致客户端绕过 CDN、Passkey RP ID 对不上。必须固定成对外域名，详见 DEPLOY.md。
+14. **带下划线的自定义回源头会被 nginx 丢弃**
+    `$http_x_origin_token` 对应的是 `X-Origin-Token`（连字符）。如果 CDN 侧填成
+    `X_Origin_Token`，nginx 默认 `underscores_in_headers off` 直接丢掉，表现为全站 403。
+15. **国内 `docker build` 会卡在 `apt-get`**
+    `deb.debian.org` 在部分国内机器上拉包无响应（日志停在 `Get Packages` 后数分钟）。
+    用 `--build-arg APT_MIRROR=mirrors.cloud.tencent.com`，apt 那步从卡死变成 7 秒。
+16. **`docker save` 出来的 tag 必须是 compose 里用的那个**
+    打包时如果镜像是 `nodewarden:new`，用户 `docker load` 后得到 `nodewarden:new`，
+    和 compose 的 `image: nodewarden:local` 对不上，容器起不来。打包前先 `docker tag`。
 
 ---
 
@@ -255,6 +302,11 @@ jobs:
 | 地址显示成 `127.0.0.1` | 反代没传 Host/X-Forwarded-* | 补头；确认补丁没被上游改动顶掉 |
 | 同步不实时 | WebSocket 没升级 | 反代补 `Upgrade` / `Connection` |
 | 定时备份没跑 | cron 循环或 `/__scheduled` 出错 | `docker logs \| grep scheduled`，确认容器内 curl 能到 127.0.0.1:8787 |
+| 网页「暂时无法验证会话」+ 公网 30 秒超时 | 容器内存被打满（图标抓取） | 设 `ICON_SERVICE_URL` + 抬 `mem_limit` + 配 swap，见 DEPLOY.md |
+| 全站 403，配置看着没错 | 自定义回源头名不匹配（多半写成了下划线） | 头名改连字符，CDN 重新发布 |
+| 客户端地址指向回源域名 | `X-Forwarded-Host` 用了 `$host` | 固定成对外域名 |
+| `docker load` 后容器起不来（image not found） | 包内 tag 与 compose 不一致 | `docker tag <实际tag> nodewarden:local` |
+| `docker build` 卡在 `apt-get` 十几分钟 | `deb.debian.org` 国内断流 | `--build-arg APT_MIRROR=mirrors.cloud.tencent.com` |
 
 ---
 
