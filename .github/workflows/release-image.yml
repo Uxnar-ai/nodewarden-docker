@@ -1,0 +1,45 @@
+name: Release image tarball
+
+# 手动触发：构建镜像 → 导出离线 tar.gz → 挂到指定 Release 上。
+#
+# 为什么放在这里做而不是本地：离线包 357MB，从国内服务器传到 GitHub 上行只有
+# 100KB/s 级别，要将近一小时；GitHub 的 runner 到 Releases 是内网，几十秒。
+#
+# 用途：给拉不动 ghcr.io 的机器（国内网络）准备的离线镜像包。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要附加到哪个 Release，例如 v1.8.1-docker.2（该 Release 必须已存在）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t nodewarden:local .
+
+      - name: Export tarball
+        run: |
+          set -euo pipefail
+          docker save nodewarden:local | gzip -3 > nodewarden-image-amd64.tar.gz
+          ls -lh nodewarden-image-amd64.tar.gz
+          # 校验包内 tag 正确，避免用户 load 后名字对不上
+          tar -xzOf nodewarden-image-amd64.tar.gz manifest.json | head -c 200
+          echo
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: nodewarden-image-amd64.tar.gz
+          fail_on_unmatched_files: true
