@@ -1,0 +1,19 @@
+# Gitleaks 配置
+#
+# 唯一一条命中来自上游的演示数据：webapp/src/lib/demo.ts 里那段
+#   -----BEGIN OPENSSH PRIVATE KEY-----
+#   DEMO-PRIVATE-KEY
+#   -----END OPENSSH PRIVATE KEY-----
+# 是给 Demo 模式做 UI 预览用的占位字符串（同文件里写着 "Fake SSH key material for UI preview."），
+# 不是可用密钥。
+#
+# 除这条白名单外，本仓库不允许任何密钥进入版本库；新增白名单等于放宽安全底线，别随手加。
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "上游 demo 演示数据，全部是假值"
+paths = [
+  '''webapp/src/lib/demo\.ts''',
+]
