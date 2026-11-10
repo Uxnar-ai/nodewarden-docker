@@ -42,7 +42,12 @@ ENV NODE_ENV=production \
     NW_DATA_DIR=/data \
     NW_PORT=8787
 
-RUN apt-get update \
+# Debian 源。国内构建时 deb.debian.org 经常卡死（拉包无响应），
+# 可换镜像源：docker build --build-arg APT_MIRROR=mirrors.cloud.tencent.com .
+ARG APT_MIRROR=deb.debian.org
+
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl tini \
  && rm -rf /var/lib/apt/lists/*
 

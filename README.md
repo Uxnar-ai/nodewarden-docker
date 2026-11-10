@@ -79,6 +79,12 @@ docker build -t nodewarden:local .
 
 构建需要访问 `registry.npmjs.org`（约 1.1k 个依赖），首次 3~8 分钟。
 
+国内网络建议换 Debian 镜像源，否则 `apt-get` 那步会长时间卡住不动：
+
+```bash
+docker build --build-arg APT_MIRROR=mirrors.cloud.tencent.com -t nodewarden:local .
+```
+
 ### 装完之后
 
 1. 浏览器打开 `http://127.0.0.1:18787` 确认活着
